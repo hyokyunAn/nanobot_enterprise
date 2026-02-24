@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Atlassian Confluence MCP server (PAT authentication)."""
+"""Atlassian Confluence MCP server (Cloud + Data Center)."""
 
 from __future__ import annotations
 
@@ -41,12 +41,20 @@ def _base_url() -> str:
 
 
 def _headers() -> dict[str, str]:
-    pat = _require_env("CONFLUENCE_PAT")
-    return {
-        "Authorization": f"Bearer {pat}",
+    auth_mode = (os.getenv("CONFLUENCE_AUTH_MODE") or "bearer").strip().lower()
+    token = _require_env("CONFLUENCE_PAT")
+    headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
+    if auth_mode == "basic":
+        username = _require_env("CONFLUENCE_USERNAME")
+        import base64
+        creds = base64.b64encode(f"{username}:{token}".encode("utf-8")).decode("ascii")
+        headers["Authorization"] = f"Basic {creds}"
+    else:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 
 def _timeout_seconds() -> float:
@@ -59,7 +67,10 @@ def _timeout_seconds() -> float:
         return DEFAULT_TIMEOUT_SECONDS
 
 
-def _verify_ssl() -> bool:
+def _verify_ssl() -> bool | str:
+    ca_bundle = (os.getenv("CONFLUENCE_CA_BUNDLE") or "").strip()
+    if ca_bundle:
+        return ca_bundle
     return _to_bool(os.getenv("CONFLUENCE_VERIFY_SSL"), default=True)
 
 
@@ -132,16 +143,17 @@ def _extract_page_summary(item: dict[str, Any]) -> dict[str, Any]:
 mcp = FastMCP(
     name="atlassian-confluence",
     instructions=(
-        "Confluence MCP tools using Personal Access Token (PAT). "
-        "Set CONFLUENCE_BASE_URL (e.g. https://<site>.atlassian.net/wiki) "
-        "and CONFLUENCE_PAT before starting."
+        "Confluence MCP tools for Cloud and Data Center. "
+        "Set CONFLUENCE_BASE_URL and CONFLUENCE_PAT before starting. "
+        "Optional: CONFLUENCE_AUTH_MODE=bearer|basic, CONFLUENCE_USERNAME "
+        "(required when auth_mode=basic), CONFLUENCE_CA_BUNDLE."
     ),
 )
 
 
 @mcp.tool()
 async def health() -> str:
-    """Verify Confluence PAT auth and API reachability."""
+    """Verify Confluence auth and API reachability."""
     try:
         data = await _request_json("GET", "/rest/api/space", params={"limit": 1})
         result = {

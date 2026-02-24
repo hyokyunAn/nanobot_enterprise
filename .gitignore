@@ -21,3 +21,4 @@ poetry.lock
 botpy.log
 tests/
 /BotBuilder-Samples
+workspace/mcp/confluence.env
